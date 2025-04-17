@@ -1,0 +1,159 @@
+
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>GPS-byme-khaosat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    #map { height: 80vh; width: 100%; }
+    button { margin: 10px; padding: 10px 20px; font-size: 16px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ccc; padding: 5px; text-align: left; }
+  </style>
+</head>
+<body>
+  <h2 style="text-align:center;">🌍 GPS-byme-khaosat</h2>
+  <div id="map"></div>
+  <div style="text-align:center;">
+    <button onclick="trackMyLocation()">📍 Theo dõi vị trí của tôi</button>
+    <button onclick="exportToExcel()">📤 Lưu vị trí vào Excel</button>
+    <button onclick="searchLocation()">🔍 Tìm kiếm</button>
+    <button onclick="addManualLocation()">➕ Thêm vị trí thủ công</button>
+    <button onclick="clearMarkers()">❌ Xóa dấu hiệu</button>
+    <input type="file" id="fileInput" style="display:none;" />
+    <button onclick="document.getElementById('fileInput').click()">📂 Chọn tệp</button>
+  </div>
+  <table id="pointTable">
+    <thead>
+      <tr><th>#</th><th>Latitude</th><th>Longitude</th><th>Ghi chú</th><th>VN2000 X</th><th>VN2000 Y</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.7.4/proj4.js"></script>
+  <script>
+    proj4.defs([
+      ["EPSG:4326", "+proj=longlat +datum=WGS84 +no_defs"],
+      ["EPSG:5041", "+proj=tmerc +lat_0=0 +lon_0=105 +k=1 +x_0=500000 +y_0=0 +datum=WGS84 +units=m +no_defs"]
+    ]);
+
+    var map = L.map('map').setView([16.047079, 108.206230], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    var points = [];
+    var markers = [];
+    var tableBody = document.querySelector("#pointTable tbody");
+
+    map.on('click', function(e) {
+      var note = prompt("Nhập ghi chú cho điểm này:", "");
+      var lat = e.latlng.lat.toFixed(6);
+      var lng = e.latlng.lng.toFixed(6);
+      points.push({lat, lng, note});
+      
+      var vn2000Coords = convertCoordinates(lat, lng);
+      
+      var marker = L.marker([lat, lng]).addTo(map).bindPopup("Ghi chú: " + (note || "(không có)"));
+      markers.push(marker);
+      var row = tableBody.insertRow();
+      row.innerHTML = `<td>${points.length}</td><td>${lat}</td><td>${lng}</td><td>${note || ""}</td><td>${vn2000Coords[0]}</td><td>${vn2000Coords[1]}</td>`;
+    });
+
+    function convertCoordinates(lat, lon) {
+      var wgs84Point = [lon, lat];
+      var vn2000Point = proj4('EPSG:4326', 'EPSG:5041', wgs84Point);
+      return vn2000Point;
+    }
+
+    function exportToExcel() {
+      var data = points.map((p, i) => ({
+        STT: i + 1,
+        Latitude: p.lat,
+        Longitude: p.lng,
+        Ghi_chu: p.note || "",
+        VN2000_X: convertCoordinates(p.lat, p.lng)[0],
+        VN2000_Y: convertCoordinates(p.lat, p.lng)[1]
+      }));
+      var ws = XLSX.utils.json_to_sheet(data);
+      var wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "DiemToaDo");
+      XLSX.writeFile(wb, "diem_toado.xlsx");
+    }
+
+    function trackMyLocation() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(function(position) {
+          var lat = position.coords.latitude;
+          var lon = position.coords.longitude;
+          map.setView([lat, lon], 13);
+          L.marker([lat, lon]).addTo(map).bindPopup("Vị trí hiện tại của bạn.");
+        });
+      } else {
+        alert("Geolocation không được hỗ trợ trên trình duyệt này.");
+      }
+    }
+
+    function searchLocation() {
+      var query = prompt("Nhập tên địa điểm hoặc tọa độ:");
+      fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.length > 0) {
+            var lat = data[0].lat;
+            var lon = data[0].lon;
+            map.setView([lat, lon], 13);
+            L.marker([lat, lon]).addTo(map).bindPopup(query);
+          } else {
+            alert("Không tìm thấy địa điểm.");
+          }
+        });
+    }
+
+    function addManualLocation() {
+      var lat = prompt("Nhập vĩ độ:");
+      var lon = prompt("Nhập kinh độ:");
+      var note = prompt("Nhập ghi chú cho điểm này:");
+      points.push({lat, lng: lon, note});
+      
+      var vn2000Coords = convertCoordinates(lat, lon);
+      var marker = L.marker([lat, lon]).addTo(map).bindPopup("Ghi chú: " + (note || "(không có)"));
+      markers.push(marker);
+      var row = tableBody.insertRow();
+      row.innerHTML = `<td>${points.length}</td><td>${lat}</td><td>${lon}</td><td>${note || ""}</td><td>${vn2000Coords[0]}</td><td>${vn2000Coords[1]}</td>`;
+    }
+
+    function clearMarkers() {
+      markers.forEach(function(marker) {
+        map.removeLayer(marker);
+      });
+      markers = [];
+      tableBody.innerHTML = "";
+      points = [];
+    }
+
+    document.getElementById("fileInput").addEventListener("change", function(event) {
+      var file = event.target.files[0];
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        var content = e.target.result;
+        var data = JSON.parse(content);
+        data.forEach(function(point) {
+          L.marker([point.lat, point.lng]).addTo(map).bindPopup(point.note);
+          points.push(point);
+          var vn2000Coords = convertCoordinates(point.lat, point.lng);
+          var row = tableBody.insertRow();
+          row.innerHTML = `<td>${points.length}</td><td>${point.lat}</td><td>${point.lng}</td><td>${point.note}</td><td>${vn2000Coords[0]}</td><td>${vn2000Coords[1]}</td>`;
+        });
+      };
+      reader.readAsText(file);
+    });
+  </script>
+</body>
+</html>
